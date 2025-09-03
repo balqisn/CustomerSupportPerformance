@@ -1,0 +1,145 @@
+📌CLEANING DATA
+--melihat seluruh dataset
+SELECT * FROM portfolio-project-467803.Consumer_Complaint.Customer_support_data;
+
+--replace nama kolom
+CREATE OR REPLACE TABLE `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean` AS
+SELECT 
+`Unique id` as unique_id,
+channel_name,
+category,
+`Sub-category` as sub_category,
+`Customer Remarks` as customer_remarks,
+`Order_id` as order_id,
+order_date_time,
+`Issue_reported at` as issue_reported_at,
+issue_responded,
+`Survey_response_Date` as survey_response_date,
+`Customer_City` as cutomer_city,
+`Product_category` as product_category,
+`Item_price` as item_price,
+connected_handling_time,
+`Agent_name` as agent_name,
+`Supervisor` as supervisor,
+`Manager` as manager,
+`Tenure Bucket` as tenure_bucket,
+`Agent Shift` as agent_shift,
+`CSAT Score` as csat_score
+FROM portfolio-project-467803.Consumer_Complaint.Customer_support_data;
+
+--melihat dataset clean
+SELECT * FROM portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean;
+
+📌ANALISA KELUHAN
+--Category yang paling banyak dikeluhkan
+SELECT 
+category, count(category) as total
+FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
+GROUP BY category
+ORDER BY count(category) DESC;
+
+--Top 5 sub-category yang paling banyak dikeluhkan berdasarkan shift
+SELECT
+category, agent_shift, count(category) as total_issue
+FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
+group by category, agent_shift
+order by count(category) desc
+limit 5;
+
+--Respon keluhan
+SELECT 
+issue_reported_at,
+issue_responded,
+AVG(datetime_diff(issue_responded, issue_reported_at, minute)) as rata_rata_respon
+FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
+group by issue_reported_at, issue_responded
+order by rata_rata_respon DESC;
+
+--Rata-rata respon keluhan normal / kurang dari 1 jam
+SELECT 
+AVG(datetime_diff(issue_responded, issue_reported_at, minute)) as rata_rata_respon
+FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
+WHERE datetime_diff(issue_responded, issue_reported_at, minute) BETWEEN 1 AND 60;
+
+--Hitung response time + summary awal
+WITH response_summary AS (
+  SELECT
+    unique_id,
+    CASE
+    WHEN TIMESTAMP_DIFF(issue_responded, issue_reported_at, minute) < 0 THEN NULL
+    ELSE TIMESTAMP_DIFF(issue_responded, issue_reported_at, minute)
+    END AS response_time_minutes,
+    csat_score
+  FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
+  WHERE issue_responded IS NOT NULL
+    AND issue_reported_at IS NOT NULL
+    AND csat_score IS NOT NULL
+    )
+--Summary Statistik
+SELECT
+  COUNT(*) AS total_records,
+  ROUND(AVG(response_time_minutes), 2) AS avg_response_time,
+  APPROX_QUANTILES(response_time_minutes, 2)[OFFSET(1)] AS median_response_time,
+  MIN(response_time_minutes) AS min_response_time,
+  MAX(response_time_minutes) AS max_response_time,
+  ROUND(AVG(csat_score), 2) AS avg_csat
+FROM response_summary;
+
+--Keluhan yang ditangani agent berdasarkan shift dan tenure
+SELECT
+agent_name,
+agent_shift,
+tenure_bucket,
+count(sub_category) as total_issue
+FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
+group by agent_name, agent_shift, tenure_bucket
+order by count(sub_category) DESC;
+
+📌ANALISA CSAT
+--Cek anomali respon / hasil negatif
+SELECT
+  unique_id,
+  issue_reported_at,
+  issue_responded,
+  TIMESTAMP_DIFF(issue_responded, issue_reported_at, MINUTE) AS response_time_minutes
+FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
+WHERE TIMESTAMP_DIFF(issue_responded, issue_reported_at, MINUTE) < 0
+ORDER BY response_time_minutes ASC
+LIMIT 20;
+--dikarenakan nilai yang negatif sedikit sehingga diganti null dan sudah diperbaiki pada #Hitung response time + summary awal 
+
+--csat yang diberikan berdasarkan rata-rata handling
+SELECT
+csat_score,
+round(avg(connected_handling_time),2) as avg_handling
+FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
+group by csat_score
+order by avg(connected_handling_time) DESC;
+
+--Mencari kata kunci customer remarks
+SELECT
+DISTINCT customer_remarks
+FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`;
+--dataset ini menggunakan kombinasi bahasa inggris dan hindi
+--badh(meningkatkan), kharab(buruk), poor, not yet resolved, not resolved, improve, bad
+--behtar(lebih baik), good, solved, politely, nice, helpful, excellent, nice, achchha, madadagaar
+
+--Jumlah survey positif dan negatif
+SELECT
+csat_score,
+SUM(CASE WHEN LOWER(customer_remarks) LIKE '%behtar%' OR LOWER(customer_remarks) LIKE '%good%' OR LOWER(customer_remarks) LIKE '%solved%' OR LOWER(customer_remarks) LIKE '%politely%' OR LOWER(customer_remarks) LIKE '%nice%' OR LOWER(customer_remarks) LIKE '%helpful%' OR LOWER(customer_remarks) LIKE '%excellent%'OR LOWER(customer_remarks) LIKE '%nice%'OR LOWER(customer_remarks) LIKE '%achchha%'OR LOWER(customer_remarks) LIKE '%madadagaar%' THEN 1 ELSE 0 END) as total_positif,
+SUM(CASE WHEN LOWER(customer_remarks) LIKE '%badh%' OR LOWER(customer_remarks) LIKE '%kharab%' OR LOWER(customer_remarks) LIKE '%poor%' OR LOWER(customer_remarks) LIKE '%not%' OR LOWER(customer_remarks) LIKE '%imrpove%' OR LOWER(customer_remarks) LIKE '%bad%' THEN 1 ELSE 0 END) AS total_negatif,
+COUNT(csat_score) as jumlah_responden
+FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
+GROUP BY csat_score
+order by jumlah_responden DESC;
+
+--Distribusi CSAT
+SELECT
+csat_score,
+count (*) as jumlah_respon,
+ROUND(COUNT(*) * 100 / SUM(COUNT(*)) OVER (), 2) AS persen
+FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
+WHERE csat_score IS NOT NULL
+GROUP BY csat_score
+ORDER BY csat_score;
