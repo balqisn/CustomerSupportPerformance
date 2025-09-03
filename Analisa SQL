@@ -46,7 +46,15 @@ group by category, agent_shift
 order by count(category) desc
 limit 5;
 
---Respon keluhan
+-- average handling time by sub-category
+SELECT
+sub_category, round(avg(connected_handling_time),2) as avg_handling_time
+FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
+group by sub_category
+order by avg(connected_handling_time) desc
+limit 5;
+
+--First time respon keluhan
 SELECT 
 issue_reported_at,
 issue_responded,
@@ -55,13 +63,13 @@ FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
 group by issue_reported_at, issue_responded
 order by rata_rata_respon DESC;
 
---Rata-rata respon keluhan normal / kurang dari 1 jam
+--Rata-rata first time respon keluhan normal / kurang dari 1 jam
 SELECT 
 AVG(datetime_diff(issue_responded, issue_reported_at, minute)) as rata_rata_respon
 FROM `portfolio-project-467803.Consumer_Complaint.Customer_support_data_clean`
 WHERE datetime_diff(issue_responded, issue_reported_at, minute) BETWEEN 1 AND 60;
 
---Hitung response time + summary awal
+--Hitung first time response time + summary awal
 WITH response_summary AS (
   SELECT
     unique_id,
